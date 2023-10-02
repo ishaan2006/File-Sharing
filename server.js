@@ -32,8 +32,6 @@ const
 		credentials: true, // Enable credentials (e.g., cookies, authorization headers)
 	}
 
-app.use( cors(corsOptions) );
-
 app.use(function setOrigin(req, res, next) {
 	res.setHeader("Access-Control-Allow-Origin",
 		allowedOrigins.includes(req.headers.origin) ?
@@ -66,8 +64,6 @@ function failurePage(method, loc, msg = "Invalid Request", linkHome = true) {
 
 app.get("/", (req, res) => {
 	console.log(`${req.ip}:${req.connection.remotePort} requesting '/' over ${req.protocol}; use '/index.html', sending 303`)
-
-	setOrigin(req, res);
 
 	res.redirect(303, "/index.html")
 })
