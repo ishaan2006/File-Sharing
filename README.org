@@ -1,4 +1,29 @@
-README.org
+* Run/Build/Whatever Instructions
+	#+begin_src sh
+		# create server key (self-signed)
+		openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out server.crt
+		# extra information:
+			# Country Name (2 letter code) [AU]:US
+			# State or Province Name (full name) [Some-State]:Arizona
+			# Locality Name (eg, city) []:Glendale
+			# Organization Name (eg, company) []:.
+			# Organizational Unit Name (eg, section) []:Server
+			# Common Name (e.g. server FQDN or YOUR name) []:localhost
+			# Email Address []:djanusch2007@gmail.com
+
+		# install dependencies
+		npm install express
+
+		# run server
+		node server.js
+
+		# current valid domains:
+			# https://localhost:443/
+			# https://127.0.0.1:443/
+			# http://localhost:80/
+			# http://127.0.0.1:80/
+	#+end_src
+
 
 * goals
 	- ease of use
