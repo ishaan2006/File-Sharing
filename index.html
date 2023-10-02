@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+	<!-- https?://(?:127\.0\.0\.1|localhost):(?:80|443)(?:/(?:index.html)?)? -->
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<link rel="icon" href="favicon.ico" type="image/x-icon">
+		<title>File Sharing App</title>
+
+		<style>
+			* { color: rgb(150, 150, 150) }
+
+			body {
+				background-color: black;
+				margin: 0px 0px;
+			}
+
+			div#main-content {
+				display: flex;
+				flex-direction: column;
+				justify-content: center;
+				align-items: center;
+			}
+
+			.centered {
+				text-align: center;
+			}
+
+			button.link {
+				padding: 10px 20px;
+				display: block;
+				margin: 10px 0px;
+				background-color: #030d4d;
+				border-radius: 14px;
+			}
+		</style>
+	</head>
+
+	<body dir="ltr">
+		<h1 class="centered">File Sharing App</h1>
+		<h3 class="centered">Choose an action</h3>
+		<div id="main-content">
+			<div><button class="link" onclick="location.href = './upload.html'">Upload File</button></div>
+    		<div><button class="link" onclick="location.href = './download.html'">Download File</button></div>
+    		<div><button class="link" onclick="location.href = './delete.html'">Delete File</button></div>
+		</div>
+	</body>
+</html>
