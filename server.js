@@ -1,7 +1,6 @@
 
 const
 	fs = require("fs"),
-	cors = require("cors"),
 	express = require("express"),
 	http = require("http"),
 	https = require("https"),
