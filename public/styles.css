@@ -1,0 +1,19 @@
+* {
+	color: rgb(150, 150, 150);
+}
+
+body {
+	background-color: black;
+}
+
+button.link {
+	padding: 10px 20px;
+	display: block;
+	margin: 10px 0px;
+	background-color: #030d4d;
+	border-radius: 14px;
+}
+
+.centered {
+	text-align: center;
+}
