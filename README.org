@@ -13,6 +13,7 @@ openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out serv
 
 # install dependencies
 npm install express
+npm install multer
 
 # run server
 node server.js
