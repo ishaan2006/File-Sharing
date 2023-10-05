@@ -1,19 +1,24 @@
 
 const
-	fs = require("fs"),
 	express = require("express"),
-	http = require("http"),
+	multer = require("multer"),
 	https = require("https"),
+	sha3 = require("js-sha3"),
+	http = require("http"),
+	fs = require("fs"),
+
+	upload = multer(),
 	app = express(),
+	read = (location, encoding="utf-8") => fs.readFileSync(location, encoding),
 
 	// openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out server.crt
-	privateKey = fs.readFileSync("server.key", "utf-8"),
-	certificate = fs.readFileSync("server.crt", "utf-8"),
+	privateKey = read("server.key"),
+	certificate = read("server.crt"),
 	credentials = { key: privateKey, cert: certificate },
+	getHash = sha3.sha3_224, // TODO: eventually change this to sha3_512.
 
 
 	allowedMethods = "GET,POST,OPTIONS",
-
 	ROOT = __dirname + "/public",
 	HTTPS_PORT = 443,
 	HTTP_PORT = 80,
@@ -36,14 +41,10 @@ const
 	allowedGetLocations = allowedGetAddressLocations.concat(allowedGetMiscellaneousLocations),
 	allowedGetLocationsString = `Allowed paths for GET: ${
 		["/"].concat(allowedGetLocations).map(e => `'${e}'`).join(", ")
-	}\n`,
-	corsOptions = {
-		methods: allowedMethods,
-		optionsSuccessStatus: 200,
-		credentials: true, // Enable credentials (e.g., cookies, authorization headers)
-	}
+	}\n`
 
 app.use(function setOrigin(req, res, next) {
+	// cors
 	res.setHeader("Access-Control-Allow-Origin",
 		allowedOrigins.includes(req.headers.origin) ?
 			req.headers.origin :
@@ -56,6 +57,9 @@ app.use(function setOrigin(req, res, next) {
 
 	next()
 })
+
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
 
 app.use(function (req, res, next) {
@@ -92,7 +96,7 @@ app.use(function (req, res, next) {
 
 	res.failurePage = function failurePage(msg = "Invalid Request", linkHome = true) {
 		try {
-			return fs.readFileSync("./public/error-template.html", "utf-8")
+			return read("./public/error-template.html")
 				.replace("{method}", req.method)
 				.replace("{location}", req.url)
 				.replace("{message}", msg)
@@ -111,6 +115,36 @@ app.use(function (req, res, next) {
 	next()
 })
 
+
+app.post("/upload.html", upload.single("file"), (req, res) => {
+
+	if (!allowedOrigins.map(e => e + "/upload.html").concat(
+		allowedOrigins.map(e => e.replace(/:\d+$/, "") + "/upload.html")
+	).includes( req.referrer )) {
+		res.logRequest(404)
+		res.sendFailurePage("404 Not Found")
+
+		return
+	}
+
+	const body = JSON.parse(req.body.json ?? null);
+	body.filename = req.file.originalname;
+
+
+	// store the file and update the databases
+
+	res.logRequest(200)
+
+	console.log(body)
+	console.log(req.file)
+
+	res.setHeader("Content-Type", "text/html")
+
+	res.send(
+		read("./public/results.html")
+			.replace("{results}", "results: " + JSON.stringify(req.body))
+	)
+})
 
 app.get(/\/(home|index)?$/, (req, res) => {
 	res.logRequest(303, "use '/index.html'")
@@ -149,24 +183,6 @@ for (let loc of allowedGetMiscellaneousLocations)
 	})
 
 
-app.post("/upload.html", (req, res) => {
-	if (!allowedOrigins.map(e => e + "/upload.html").concat(
-		allowedOrigins.map(e => e.replace(/:\d+$/, "") + "/upload.html")
-	).includes( req.referrer )) {
-		res.logRequest(404)
-		res.sendFailurePage("404 Not Found")
-
-		return
-	}
-
-	// store 
-
-	res.logRequest(200)
-	res.setHeader("Content-Type", "text/html")
-
-	res.sendFile("results.html", {root: ROOT})
-})
-
 app.get("*", (req, res) => {
 	res.logRequest(404)
 
@@ -196,12 +212,12 @@ app.all("*", (req, res) => {
 	res.send(`Invalid method: ${req.method}\nclosing connection\n`)
 })
 
+console.log("Routers created")
 
 const
 	httpServer = http.createServer(app),
 	httpsServer = https.createServer(credentials, app)
 
-console.log("Routers created")
 
 httpServer .listen(HTTP_PORT, IP, () =>
 	console.log(`Server is running at http://${IP}:${ HTTP_PORT}`) )

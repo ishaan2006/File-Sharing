@@ -5,21 +5,134 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>Upload File</title>
 
+
 	<link rel="stylesheet" type="text/css" href="./styles.css">
 
 	<style type="text/css">
 		input[type="file"] {
 			border-radius: 10px;
+			background-color: black;
 		}
+
+		input[type="checkbox"]:checked + label + * {
+			display: inline;
+		}
+
+		input[type="checkbox"]:not(:checked) + label + * {
+			display: none;
+		}
+
+		input:is([type="text"], [type="number"]) {
+			background: rgb(60, 60, 60);
+			color: rgb(220, 220, 220);
+		}
+
+		input[type="number"] {
+			width: 3rem;
+		}
+
+		body {
+			margin-left: 1.25rem;
+		}
+
 	</style>
-</head>
+
+	<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+	<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/emn178/js-sha3/build/sha3.min.js"></script>
+	<script type="text/javascript">
+		const newPassword = (function passwordGenerator_closure() {
+			const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()`~[]{}|;:',.<>/?-_=+ \"\\";
+
+			return function newPassword(length = 12) {
+				const randomBytes = new Uint8Array(length);
+				crypto.getRandomValues(randomBytes);
+				const password = Array.from(randomBytes)
+					.map(byte => chars[byte % chars.length])
+					.join("");
+
+				return password;
+			}
+		})();
+		const getHash = sha3_224; // TODO: eventually change this to sha3_512.
+	</script>
 <body>
 	<h1>Upload File</h1>
-	<form method="POST" action="/upload.html">
-		<input type="file" name="filename" required>
-		<br>
-		<br>
-		<button type="submit" class="link">Submit</button>
+	<form method="POST">
+		<label>
+			<span>File&nbsp;</span>
+			<input type="file" name="file" required>
+		</label>
+
+		<br><br><br>
+
+		<input type="checkbox" name="limited" checked>
+		<label for="limited"><span>Limited uses</span></label>
+		<input type="number" name="uses" placeholder="1" value="1" min="1" oninput='
+			value = value.replace(/\D/g, "").replace(/^0+/, "");
+
+			if (value < 1 && value !== "")
+				value = 1;
+			else if (value > 500)
+				value = 500;
+		'>
+
+		<br><br>
+
+		<input type="checkbox" name="usePassword" oninput='
+			$("input[name=password]")[0].required = checked;
+		'>
+		<label for="limited"><span>Password</span></label>
+		<div>
+			<input type="text" name="password" placeholder="password" maxlength="100">
+			<button style="display: inline; margin-left: 1rem" onclick="
+				event.preventDefault();
+				this.previousElementSibling.value = newPassword();
+			">Generate Password</button>
+		</div>
+
+		<br><br>
+
+		<button type="submit" onclick='
+			event.preventDefault();
+
+			const form = $("form")[0];
+
+			if (!form.checkValidity())
+				return form.reportValidity();
+
+			const body = {};
+			const limitedUses = $("input[name=limited]")[0];
+			const uses = $("input[name=uses]")[0];
+			const fileInput = $("input[name=file]")[0];
+			const usePassword = $("input[name=usePassword]")[0];
+			const password = $("input[name=password]")[0];
+
+			const data = new FormData();
+
+			body.uses = limitedUses.checked ?
+				+uses.value || 1 :
+				-1;
+			body.password = usePassword.checked ?
+				getHash(password.value) :
+				getHash(""); // there still is a password, but it is the blank string
+
+
+			data.append("json", JSON.stringify(body));
+			data.append("file", fileInput.files[0]);
+
+			fetch("/upload.html", {
+				body: data,
+				method: "POST",
+				referrer: location.href,
+			}).then(async response => {
+				const html = await response.text();
+				const dom = new DOMParser().parseFromString(html, "text/html");
+				document.documentElement.replaceWith(dom.documentElement);
+			}).catch(error =>
+				form.after($("<p>response with errors</p>")[0])
+			);
+
+		'>Submit</button>
 	</form>
 </body>
 </html>
