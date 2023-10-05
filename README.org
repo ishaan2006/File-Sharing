@@ -11,9 +11,8 @@ openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out serv
 	# Common Name (e.g. server FQDN or YOUR name) []:localhost
 	# Email Address []:djanusch2007@gmail.com
 
-# install dependencies
-npm install express
-npm install multer
+# install dependencies (run in the root directory)
+npm install express multer js-sha3
 
 # run server
 node server.js
