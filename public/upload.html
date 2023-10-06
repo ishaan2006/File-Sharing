@@ -34,7 +34,6 @@
 		body {
 			margin-left: 1.25rem;
 		}
-
 	</style>
 
 	<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -106,15 +105,19 @@
 			const fileInput = $("input[name=file]")[0];
 			const usePassword = $("input[name=usePassword]")[0];
 			const password = $("input[name=password]")[0];
+			const passwordString = usePassword.checked ?
+				password.value :
+				""; // the password is always present
+
 
 			const data = new FormData();
 
 			body.uses = limitedUses.checked ?
 				+uses.value || 1 :
 				-1;
-			body.password = usePassword.checked ?
-				getHash(password.value) :
-				getHash(""); // there still is a password, but it is the blank string
+
+
+			body.passwordHash = getHash(passwordString);
 
 
 			data.append("json", JSON.stringify(body));
