@@ -2,8 +2,14 @@
 	<head>
 		<link rel="stylesheet" type="text/css" href="./styles.css">
 		<style type="text/css">
-			p {
+			p#link {
 				font-family: monospace;
+				color: #551A8B;
+				cursor: pointer;
+				text-decoration: underline;
+			}
+			p#link:active {
+				color: #EF0000;
 			}
 			body {
 				margin-left: 20px;
@@ -12,6 +18,7 @@
 	</head>
 	<body>
 		<h1>Results Page</h1>
+		<p onclick="location.reload()" id="link">Upload another file</p>
 		<p>{results}</p>
 	</body>
 </html>
