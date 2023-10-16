@@ -14,12 +14,12 @@
 			background-color: black;
 		}
 
-		input[type="checkbox"]:checked + label + * {
-			display: inline;
+		input[type="checkbox"]:checked + label + :not(br) {
+			display: inline
 		}
 
-		input[type="checkbox"]:not(:checked) + label + * {
-			display: none;
+		input[type="checkbox"]:not(:checked) + label + :not(br) {
+			display: none
 		}
 
 		input:is([type="text"], [type="number"]) {
@@ -28,31 +28,72 @@
 		}
 
 		input[type="number"] {
-			width: 3rem;
+			width: 3rem
 		}
 
 		body {
-			margin-left: 1.25rem;
+			margin-left: 1.25rem
 		}
 	</style>
 
 	<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 	<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/emn178/js-sha3/build/sha3.min.js"></script>
 	<script type="text/javascript">
-		const newPassword = (function passwordGenerator_closure() {
-			const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()`~[]{}|;:',.<>/?-_=+ \"\\";
+		$.fn.call = function call(fname, ...args) {
+			return this[0]?.[fname]?.(...args)
+		}
 
-			return function newPassword(length = 12) {
-				const randomBytes = new Uint8Array(length);
-				crypto.getRandomValues(randomBytes);
-				const password = Array.from(randomBytes)
-					.map(byte => chars[byte % chars.length])
-					.join("");
+		Math.clamp = function clamp(x, a = 0, b = 10) {
+			// the order of the interval endpoints doesn't matter
+			if (a > b)
+				[a, b] = [b, a];
 
-				return password;
+			return (
+				x < a ? a :
+				x > b ? b :
+				x
+			)
+		}
+
+		const newPassword = (function newPassword_closure() {
+			const
+				lowercase = "abcdefghijklmnopqrstuvwxyz".split(""),
+				uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""),
+				digits    = "1234567890".split(""),
+				symbols   = "!@#$%^&*()`~[]{}|;:',.<>/?-_=+ \"\\".split(""),
+				chars     = lowercase.concat(uppercase).concat(digits).concat(symbols)
+
+			function _newPassword(length = 10) {
+				const randomBytes = new Uint8Array(length)
+
+				return Array.from( crypto.getRandomValues(randomBytes) )
+						.map(byte => chars[byte % chars.length])
+						.join("")
 			}
-		})();
-		const getHash = sha3_224; // TODO: eventually change this to sha3_512.
+
+			return function newPassword(length = 10) {
+
+				if (length < 6)
+					return _newPassword(length)
+
+				while (true) {
+					const password = _newPassword(length)
+
+					if (true
+						&& lowercase.some(e => password.includes(e))
+						&& uppercase.some(e => password.includes(e))
+						&& symbols.some(e => password.includes(e))
+						&& digits.some(e => password.includes(e))
+						) return password
+
+					continue
+				}
+			}
+		})()
+
+		const hash = sha3_512
+		const MIN_USES = 1
+		const MAX_USES = 500
 	</script>
 <body>
 	<h1>Upload File</h1>
@@ -64,77 +105,105 @@
 
 		<br><br><br>
 
+		<!--
+			Sensitive files are also shredded instead of just deleted.
+			They are shredded upon server breaches.
+		-->
+		<input type="checkbox" name="sensitive">
+		<label for="sensitive"><span>Sensitive</span></label>
+		<br><br>
+
+
 		<input type="checkbox" name="limited" checked>
 		<label for="limited"><span>Limited uses</span></label>
 		<input type="number" name="uses" placeholder="1" value="1" min="1" oninput='
-			value = value.replace(/\D/g, "").replace(/^0+/, "");
+			value = value.replace(/\D/g, "").replace(/^0+/, "")
 
-			if (value < 1 && value !== "")
-				value = 1;
-			else if (value > 500)
-				value = 500;
+			if (value !== "")
+				value = Math.clamp(value, MIN_USES, MAX_USES)
 		'>
 
 		<br><br>
 
 		<input type="checkbox" name="usePassword" oninput='
-			$("input[name=password]")[0].required = checked;
+			$("input[name=password]")[0].required = checked
 		'>
 		<label for="limited"><span>Password</span></label>
 		<div>
 			<input type="text" name="password" placeholder="password" maxlength="100">
 			<button style="display: inline; margin-left: 1rem" onclick="
-				event.preventDefault();
-				this.previousElementSibling.value = newPassword();
+				event.preventDefault()
+				this.previousElementSibling.value = newPassword()
 			">Generate Password</button>
+			<button style="display: inline; margin-left: 1rem" onclick='
+				event.preventDefault()
+				navigator.clipboard.writeText($("input[name=password]").val())
+				this.textContent = "Password Copied"
+				setTimeout(() => this.textContent = "Copy Password", 1000)
+			'>Copy Password</button>
 		</div>
 
 		<br><br>
 
 		<button type="submit" onclick='
-			event.preventDefault();
+			event.preventDefault()
 
-			const form = $("form")[0];
+			const $form = $("form")
 
-			if (!form.checkValidity())
-				return form.reportValidity();
+			if (!$form.call("checkValidity"))
+				return $form.call("reportValidity")
 
-			const body = {};
-			const limitedUses = $("input[name=limited]")[0];
-			const uses = $("input[name=uses]")[0];
-			const fileInput = $("input[name=file]")[0];
-			const usePassword = $("input[name=usePassword]")[0];
-			const password = $("input[name=password]")[0];
-			const passwordString = usePassword.checked ?
-				password.value :
-				""; // the password is always present
-
-
-			const data = new FormData();
-
-			body.uses = limitedUses.checked ?
-				+uses.value || 1 :
-				-1;
-
-
-			body.passwordHash = getHash(passwordString);
+			const
+				$sensitive     = $("input[name=sensitive]"),
+				$limitedUses   = $("input[name=limited]"),
+				$uses          = $("input[name=uses]"),
+				$fileInput     = $("input[name=file]"),
+				$usePassword   = $("input[name=usePassword]"),
+				$password      = $("input[name=password]"),
+				sensitive      = $sensitive.prop("checked"),
+				passwordString = $usePassword.prop("checked") ? $password.val() : "",
+				uses           = Math.clamp(+$uses.val(), MIN_USES, MAX_USES),
+				body           = {
+					passwordHash : hash(passwordString),
+					sensitive    : sensitive,
+					uses         : $limitedUses.prop("checked") ? uses : -1,
+				},
+				data = new FormData()
 
 
-			data.append("json", JSON.stringify(body));
-			data.append("file", fileInput.files[0]);
+			data.append("json", JSON.stringify(body))
+			data.append("file", $fileInput.prop("files")[0])
 
 			fetch("/upload.html", {
-				body: data,
-				method: "POST",
-				referrer: location.href,
-			}).then(async response => {
-				const html = await response.text();
-				const dom = new DOMParser().parseFromString(html, "text/html");
-				document.documentElement.replaceWith(dom.documentElement);
-			}).catch(error =>
-				form.after($("<p>response with errors</p>")[0])
-			);
+				body     : data,
+				method   : "POST",
+				referrer : location.href,
+			})
+				.then(res => {
+					console.log("response: %o", res)
 
+					if (Math.floor(res.status / 100) === 5)
+						throw [res.status, res.statusText]
+
+					return res.text()
+				})
+				.catch(([status, statusText]) => {
+					$form.after($(`<p>Response: ${status} ${statusText}</p>`))
+
+					throw "end"
+				})
+				.then(html => new DOMParser().parseFromString(html, "text/html"))
+				.catch(error => {
+					error === "end" ||
+						$form.after($("<p>Internal server error: Invalid HTML response.</p>"))
+
+					throw "end"
+				})
+				.then(newdom => document.documentElement.replaceWith(newdom.documentElement))
+				.catch(error => {
+					if (error !== "end")
+						$form.after($("<p>Something went wrong :)</p>"))
+				})
 		'>Submit</button>
 	</form>
 </body>

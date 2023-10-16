@@ -1,25 +1,51 @@
+// for now everything assumes that client requests are valid and non-malicious
+
+
+/* DATABASE NOTES:
+MAIN DATABASE:
+
+file hash -> [
+	sensitive, // delete file on db breach,
+	relative file location,
+	projected delete date,
+	user-friendly id,
+	uses remaining,
+	password hash,
+	store date,
+	salt,
+]
+
+SECONDARY DATABASE:
+
+user-friendly id -> file hash
+*/
+
 
 const
+	{getHash, verifyHash} = require("./private/passwords.js"),
+	{ execSync } = require("child_process"),
+	{ extname } = require("path"),
 	express = require("express"),
+	crypto = require("crypto"),
 	multer = require("multer"),
 	https = require("https"),
-	sha3 = require("js-sha3"),
 	http = require("http"),
 	fs = require("fs"),
 
 	upload = multer(),
 	app = express(),
+
 	read = (location, encoding="utf-8") => fs.readFileSync(location, encoding),
 
 	// openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out server.crt
-	privateKey = read("server.key"),
-	certificate = read("server.crt"),
-	credentials = { key: privateKey, cert: certificate },
-	getHash = sha3.sha3_224, // TODO: eventually change this to sha3_512.
+	credentials = {
+		key: read("./private/server.key"),
+		cert: read("./server.crt"),
+	},
 
-
-	allowedMethods = "GET,POST,OPTIONS",
-	ROOT = __dirname + "/public",
+	UPLOAD_DESTINATION = "private/uploads/",
+	ALLOWED_METHODS = "GET,POST,OPTIONS",
+	ROOT = __dirname + "/public/",
 	HTTPS_PORT = 443,
 	HTTP_PORT = 80,
 	IP = "127.0.0.1",
@@ -38,7 +64,8 @@ const
 		"/error-template.html",
 		"/results.html",
 	],
-	allowedGetLocations = allowedGetAddressLocations.concat(allowedGetMiscellaneousLocations),
+	allowedGetLocations = allowedGetAddressLocations.concat(allowedGetMiscellaneousLocations
+	),
 	allowedGetLocationsString = `Allowed paths for GET: ${
 		["/"].concat(allowedGetLocations).map(e => `'${e}'`).join(", ")
 	}\n`
@@ -131,22 +158,97 @@ function escapeHTML(str, {tabLength = 6}={}) {
 }
 
 function formatAsJSONHTML(object = {}) {
-	return escapeHTML(formatJSON(
-		JSON.stringify(object)
-	))
+	return escapeHTML(
+		formatAsJSON(object)
+	)
+}
+
+function applyTemplate(filename, object={}) {
+	var htmlContent = read(filename)
+
+	for (let [key, value] of Object.entries(object))
+
+		htmlContent = htmlContent.replace(
+			RegExp(`\\{${key}\\}`, "g"),
+			value.toString()
+		)
+
+	return htmlContent
+}
+
+function shredFile(filepath, passes = 6) {
+	// for files marked as sensitive.
+	// returns `true` on success, `false` on fail
+
+	if (!fs.existsSync(filepath))
+		return false;
+
+	try {
+		var i, fd = fs.openSync(filepath, "w")
+
+		const stats = fs.fstatSync(fd)
+
+		if (!stats.isFile())
+			return false
+
+		const pwshFilepath = filepath.replace(/([ "'`])/g, "`$1")
+		const data = Buffer.allocUnsafe(stats.size)
+
+		// hide file
+		execSync(`powershell -c "$file.Attributes = [IO.FileAttributes]::Hidden"`)
+
+		// shred creation time
+		for (i = passes; i --> 0 ;)
+			// the dates are slightly more likely to be the endpoints than other values
+			execSync(`powershell -c "` +
+				`$file = Get-Item ${pwshFilepath};` +
+				// some date in [1/1/1979 12:00:00 AM, 12/31/2107 11:59:59 PM]
+				// dates outside the range are invalid and throw an error
+				`$file.CreationTime = [DateTimeOffset]::FromUnixTimeSeconds(` +
+					`[Math]::Clamp(${
+						crypto.randomBytes(4).readInt32BE(0)
+					}, 315446400, 4354819199)` +
+				`).DateTime` +
+			`"`)
+
+		// shred file data
+		for (i = passes; i --> 0 ;)
+			fs.writeSync(fd, crypto.randomFillSync(data))
+
+		// shred access and write times
+		for (i = passes; i --> 0 ;)
+			fs.futimesSync(fd,
+				crypto.randomBytes(4).readInt32BE(0),
+				crypto.randomBytes(4).readInt32BE(0),
+			)
+
+		// set data back to zeros
+		fs.writeSync(fd, data.fill(0))
+		fs.futimesSync(fd, 0, 0)
+
+		// delete file
+		fs.rmSync(filepath)
+	}
+	catch {
+		// permission error or something
+		return false
+	}
+	finally {
+		fs.closeSync(fd)
+	}
+
+	return true
 }
 
 
-
-app.use(function setOrigin(req, res, next) {
-	// cors
+app.use(function cors(req, res, next) {
 	res.setHeader("Access-Control-Allow-Origin",
 		allowedOrigins.includes(req.headers.origin) ?
 			req.headers.origin :
 			allowedOrigins[0]
 	)
 
-	res.setHeader("Access-Control-Allow-Methods", allowedMethods)
+	res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS)
 
 	res.setHeader("Access-Control-Allow-Credentials", "true")
 
@@ -154,17 +256,14 @@ app.use(function setOrigin(req, res, next) {
 })
 
 app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
 
-
-app.use(function (req, res, next) {
+app.use(function utils(req, res, next) {
 	req.port = req.connection.remotePort
 	req.ipport = `${req.ip}:${req.port}`
 	req.referrer = req.get("referrer") ?? "direct address"
 	req.directAddress = req.referrer === "direct address"
 
-	req.logRequest =
-	res.logRequest = function logRequest(
+	req.logRequest = function logRequest(
 		returncode = 200,
 		message = "",
 		newline = true,
@@ -191,11 +290,12 @@ app.use(function (req, res, next) {
 
 	res.failurePage = function failurePage(msg = "Invalid Request", linkHome = true) {
 		try {
-			return read("./public/error-template.html")
-				.replace("{method}", req.method)
-				.replace("{location}", req.url)
-				.replace("{message}", msg)
-				.replace("{link}", linkHome ? '<a href="/">return to homepage</a>' : "")
+			return applyTemplate("./public/error-template.html", {
+				method: req.method,
+				location: req.url,
+				message: msg,
+				link: linkHome ? '<a href="/">return to homepage</a>' : ""
+			})
 		} catch {
 			return msg ?? "Invalid Request";
 		}
@@ -204,51 +304,73 @@ app.use(function (req, res, next) {
 	res.sendFailurePage = function sendFailurePage() {
 		res.setHeader("Content-Type", "text/html")
 		res.send( res.failurePage(...arguments) )
+
 		return this
 	}
 
 	next()
 })
 
-
 app.post("/upload.html", upload.single("file"), (req, res) => {
 
 	if (!allowedOrigins.map(e => e + "/upload.html").concat(
 		allowedOrigins.map(e => e.replace(/:\d+$/, "") + "/upload.html")
 	).includes( req.referrer )) {
-		res.logRequest(404)
+		req.logRequest(404)
 		res.sendFailurePage("404 Not Found")
 
 		return
 	}
 
-	const body = JSON.parse(req.body.json ?? null);
+	const body = JSON.parse(req.body.json ?? null)
+	const file = req.file
+	const fileDigest = crypto.createHash("sha512").update(file.buffer).digest("hex")
+	const originalExtension = extname("a" + file.originalname)
 
-	body.url = "<Unknown>";
-	body.filename = req.file.originalname;
+	body.originalname = file.originalname
+	body.url = "<unknown>"
+	body.destination = UPLOAD_DESTINATION + fileDigest + originalExtension + ".tmp"
 
+	const exists = fs.existsSync(body.destination)
+	body.action = exists ? "update" : "upload"
 
-	// store the file and update the databases
+	// `file.buffer` is not defined in the multer.diskStorage() callbacks
+	if (exists) {
+		console.log("file already exists");
+		// TODO: update information other than passwords.
+		// TODO: let the user know somehow that passwords can't be updated by re-uploading
+	}
+	else
+		fs.writeFileSync(body.destination, file.buffer)
 
-	res.logRequest(200)
+	// TODO: update the main database
+	// TODO: update the secondary database
 
-	console.log(body)
-	console.log(req.file)
+	req.logRequest(200)
+
+	console.log("body:", body)
+	console.log("file:", file)
 
 	res.setHeader("Content-Type", "text/html")
 
-	res.send( read("./public/results.html").replace("{results}", formatAsJSONHTML({
-		json: body,
-		file: {
-			encoding: req.file.encoding,
-			mimetype: req.file.mimetype,
-			bytes: req.file.size,
-		}
-	}).replace(/&quot;(\w+)&quot;(?=:)/g, "$1")) )
+	res.send(
+		applyTemplate("./public/results.html", {
+			results: formatAsJSONHTML({
+				json: body,
+				file: {
+					encoding: file.encoding,
+					mimetype: file.mimetype,
+					bytes: file.size,
+				}
+			})
+				.replace(/&quot;(\w+)&quot;(?=:)/g, "$1")
+				.replace(/&quot;&lt;(\w+)&gt;&quot;/g, "$1")
+		})
+	)
 })
 
 app.get(/\/(home|index)?$/, (req, res) => {
-	res.logRequest(303, "use '/index.html'")
+	req.logRequest(303, "use '/index.html'")
 
 	res.redirect(303, "/index.html")
 })
@@ -256,7 +378,7 @@ app.get(/\/(home|index)?$/, (req, res) => {
 // simplify the requests
 app.get(/\/(upload|download|delete)$/, (req, res) => {
 
-	res.logRequest(303, `use '${req.url + ".html"}'`)
+	req.logRequest(303, `use '${req.url + ".html"}'`)
 
 	res.redirect(303, req.url + ".html")
 })
@@ -264,7 +386,7 @@ app.get(/\/(upload|download|delete)$/, (req, res) => {
 
 for (let loc of allowedGetAddressLocations)
 	app.get(loc, (req, res) => {
-		res.logRequest(200)
+		req.logRequest(200)
 
 		res.sendFile(loc, {root: ROOT})
 	})
@@ -273,37 +395,37 @@ for (let loc of allowedGetMiscellaneousLocations)
 	app.get(loc, (req, res) => {
 
 		if (req.directAddress) {
-			res.logRequest(403)
+			req.logRequest(403)
 			res.sendFailurePage("403 Forbidden")
 
 			return
 		}
 
-		res.logRequest(200)
+		req.logRequest(200)
 		res.sendFile(loc, {root: ROOT})
 	})
 
 
-app.get("*", (req, res) => {
-	res.logRequest(404)
-
-	res.status(404)
-	res.sendFailurePage("404 Not Found")
+app.use((req, res, next) => {
+	if (req.method === "GET" || req.method === "POST") {
+		req.logRequest(404)
+		res.sendFailurePage("404 Not Found")
+	}
+	else
+		next()
 })
 
 app.options("*", (req, res) => {
-	res.logRequest(200)
+	req.logRequest(200)
 
-	res.setHeader("Allow", allowedMethods)
+	res.setHeader("Allow", ALLOWED_METHODS)
 	res.setHeader("Content-Type", "text/plain")
 
 	res.send(allowedGetLocationsString)
 })
 
-
-
 app.all("*", (req, res) => {
-	res.logRequest(405, "invalid method, closing connection")
+	req.logRequest(405, "invalid method, closing connection")
 
 	res.setHeader("Content-Type", "text/plain")
 	res.setHeader("Connection", "close")

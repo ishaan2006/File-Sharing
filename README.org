@@ -1,5 +1,6 @@
 * Run/Build/Whatever Instructions
-	#+begin_src sh
+	#+begin_src bash
+# These instructions may not work on systems other than Windows
 # create server key (self-signed)
 openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out server.crt
 # extra information:
@@ -11,10 +12,18 @@ openssl req -nodes -x509 -days 730 -newkey rsa:4096 -keyout server.key -out serv
 	# Common Name (e.g. server FQDN or YOUR name) []:localhost
 	# Email Address []:djanusch2007@gmail.com
 
-# install dependencies (run in the root directory)
-npm install express multer js-sha3
+# install dependencies (run in the root project directory)
+npm install express multer mongodb
+
+# install MongoDB and run the server
+# you may need to use Administrator or change the `--dbpath` argument
+# the default location is `mongodb://127.0.0.1:27017/`
+# install here: `https://www.mongodb.com/try/download/community`
+mongod
 
 # run server
+# file shredding uses PowerShell, so that might not work on Linux.
+# You can install PowerShell here: `github.com/PowerShell/PowerShell/releases`
 node server.js
 
 # current valid domains:
@@ -22,13 +31,28 @@ node server.js
 	# https://127.0.0.1:443/
 	# http://localhost:80/
 	# http://127.0.0.1:80/
+
+# right now, browsers won't trust the HTTPS connection because the key is self-signed
 	#+end_src
 
+* Things in the /private folder
+	- passwords.js: exports a CommonJS API with the following structure:
+		- #+begin_src tsinterface {
+	getHash(password: string): string;
+	verifyHash(password: string, dbPasswordValue: string): boolean;
+}
+		#+end_src
+		- They don't actually use TypeScript, but these are the types it uses
+	- pepper.txt: contains enough information about the pepper to reconstruct it
+	- server.key: contains the HTTPS server's private key
+	- /uploads: This is where file uploads go. It must be present.
 
-* goals
-	- ease of use
-	- security
-	- speed
+* goals (descending)
+	1. security
+	2. ease of use (for the user)
+	3. application speed
+
+This information is outdated
 
 * Files
 	** main-database
@@ -66,6 +90,7 @@ node server.js
 		- send a DELETE request to the backend server.
 	** backend-server
 		- handle requests from upload.html, download.html, or delete.html
+
 		*** POST request:
 			- if the 
 			- if the file is larger than some size, like 1GB, send http-413.
@@ -77,6 +102,7 @@ node server.js
 			- append the file to the main database
 			- append the user-friendly key to the second database
 			- send http 200 and a page with the hash key and the user-friendly key.
+
 		*** GET request:
 			- if the input is a user-friendly key, check the second database
 				- if it exists, follow to the main database
@@ -85,6 +111,7 @@ node server.js
 				- if the password is wrong, send http-404 for security reasons
 				- if the key exists, send http-200 with the file
 				- otherwise send http-404
+
 		*** HEAD request:
 			- do the same thing as for GET, but only return the headers
 		*** DELETE request:
@@ -94,6 +121,7 @@ node server.js
 			- hash key:
 				- if the key exists, delete it, delete the user-friendly key, and return http-200
 				- otherwise return http-404
+
 		*** OPTIONS request:
 			- return http-200 with the following:
 				- GET
@@ -101,6 +129,7 @@ node server.js
 				- POST
 				- DELETE
 				- OPTIONS
+
 		*** any other request:
 			return http-405
 	** frontend-server
@@ -109,7 +138,8 @@ node server.js
 			- use OpenSSL to self-sign a 4096-bit X.509 RSA private key (for now).
 			- if it is too slow, consider 3072 or 2048 bits
 			- 4096-bit RSA keys are usually only for classified government things
-		*** OPTIONS request:
+
+    		*** OPTIONS request:
 			return http-200 with GET, and OPTIONS
 		*** GET request:
 			- return one of the following depending on the request:
@@ -121,15 +151,3 @@ node server.js
 				- favicon.ico
 		*** any other request:
 			return http-405
-
-* languages available:
-	** server:
-		- NodeJS **
-		- Python
-		- Go
-		- Wolfram Language
-		- PowerShell
-	** database:
-		- MongoDB
-		- MySQL
-		- idk, probably anything will work
