@@ -20,18 +20,21 @@ SECONDARY DATABASE:
 user-friendly id -> file hash
 */
 
+import {getHash, verifyHash} from "./private/passwords.js"
+import { execSync }          from "child_process"
+import express               from "express"
+import crypto                from "crypto"
+import multer                from "multer"
+import https                 from "https"
+import { dirname, extname }  from "path"
+import http                  from "http"
+import { fileURLToPath }     from "url"
+import fs                    from "fs"
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const
-	{getHash, verifyHash} = require("./private/passwords.js"),
-	{ execSync } = require("child_process"),
-	{ extname } = require("path"),
-	express = require("express"),
-	crypto = require("crypto"),
-	multer = require("multer"),
-	https = require("https"),
-	http = require("http"),
-	fs = require("fs"),
-
 	upload = multer(),
 	app = express(),
 
