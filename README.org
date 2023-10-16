@@ -37,7 +37,8 @@ node server.js
 
 * Things in the /private folder
 	- passwords.js: exports a CommonJS API with the following structure:
-		#+begin_src tsinterface {
+		#+begin_src ts
+interface {
 	getHash(password: string): string;
 	verifyHash(password: string, dbPasswordValue: string): boolean;
 }
