@@ -38,7 +38,7 @@ node server.js
 * Things in the /private folder
 	- passwords.js: exports a CommonJS API with the following structure:
 		#+begin_src ts
-interface {
+interface PasswordAPI {
 	getHash(password: string): string;
 	verifyHash(password: string, dbPasswordValue: string): boolean;
 }
@@ -56,17 +56,17 @@ interface {
 This information is outdated
 
 * Files
-	** main-database
+	* main-database
 		- some kind of database that maps a string id to a file location.
 		- the file should be allowed to be in any form or have any extension
-	** second-database
+	* second-database
 		- basically map from user-friendly keys to hash keys
-	** index.html
+	* index.html
 		- select one of the following and make a GET request to the frontend server:
 			- upload
 			- download
 			- delete
-	** upload.html
+	* upload.html
 		- upload files to the server
 		- use either the FileReader JavaScript API or <form>
 		- take an optional password for the file (hash before sending. use SHA3-512)
@@ -75,7 +75,7 @@ This information is outdated
 			- 0-9, A-Z, 4 digits
 			- 0-9 A-Z, 8 digits
 		- send a POST request to the backend server
-	** download.html
+	* download.html
 		- use a form or something that takes user input to download
 			- if the url has `?pass=asdf&userid=123456`, put those into the form.
 		- download files from the server
@@ -83,16 +83,15 @@ This information is outdated
 		- specify either user-friendly key or hash key
 		- take in the key
 		- send a GET request to the backend server.
-	** delete.html
+	* delete.html
 		- delete files from the server
 		- take an optional password
 		- specify either user-friendly key or hash key
 		- take in the key
 		- send a DELETE request to the backend server.
-	** backend-server
+	* backend-server
 		- handle requests from upload.html, download.html, or delete.html
-
-		*** POST request:
+		** POST request:
 			- if the 
 			- if the file is larger than some size, like 1GB, send http-413.
 			- create a SHA3-512 hash key for the file
@@ -103,8 +102,7 @@ This information is outdated
 			- append the file to the main database
 			- append the user-friendly key to the second database
 			- send http 200 and a page with the hash key and the user-friendly key.
-
-		*** GET request:
+		** GET request:
 			- if the input is a user-friendly key, check the second database
 				- if it exists, follow to the main database
 				- otherwise send http-404
@@ -112,37 +110,33 @@ This information is outdated
 				- if the password is wrong, send http-404 for security reasons
 				- if the key exists, send http-200 with the file
 				- otherwise send http-404
-
-		*** HEAD request:
+		** HEAD request:
 			- do the same thing as for GET, but only return the headers
-		*** DELETE request:
+		** DELETE request:
 			- user-friendly key:
 				- if the key exists, delete it, delete the main item, and return http-200
 				- otherwise return http-404
 			- hash key:
 				- if the key exists, delete it, delete the user-friendly key, and return http-200
 				- otherwise return http-404
-
-		*** OPTIONS request:
+		** OPTIONS request:
 			- return http-200 with the following:
 				- GET
 				- HEAD
 				- POST
 				- DELETE
 				- OPTIONS
-
-		*** any other request:
+		** any other request:
 			return http-405
-	** frontend-server
-		*** miscellaneous
+	* frontend-server
+		** miscellaneous
 			- support both HTTP and HTTPS.
 			- use OpenSSL to self-sign a 4096-bit X.509 RSA private key (for now).
 			- if it is too slow, consider 3072 or 2048 bits
 			- 4096-bit RSA keys are usually only for classified government things
-
-    		*** OPTIONS request:
+    	** OPTIONS request:
 			return http-200 with GET, and OPTIONS
-		*** GET request:
+		** GET request:
 			- return one of the following depending on the request:
 				- index.html
 				- upload.html
@@ -150,5 +144,5 @@ This information is outdated
 				- delete.html
 				- robots.txt
 				- favicon.ico
-		*** any other request:
+		** any other request:
 			return http-405
