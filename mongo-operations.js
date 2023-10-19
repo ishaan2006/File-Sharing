@@ -107,6 +107,7 @@ export function remove(key) {
 	)
 }
 
+
 export function getAll() {
 	return connect().then(async client => {
 		const db = client.db("File-Sharing")
