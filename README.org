@@ -19,7 +19,10 @@ npm install express multer mongodb
 # you may need to use Administrator or change the `--dbpath` argument
 # the default location is `mongodb://127.0.0.1:27017/`
 # install here: `https://www.mongodb.com/try/download/community`
-mongod
+# you need to have a database `File-Sharing`, with two collections:
+	# `main`: for the file metadata
+	# `user-keys`: for storing the map from user-friendly keys to file digests
+mongod --port 27017
 
 # run server
 # file shredding uses PowerShell, so that might not work on Linux.
@@ -36,7 +39,7 @@ node server.js
 	#+end_src
 
 * Things in the /private folder
-	- passwords.js: exports a CommonJS API with the following structure:
+	- passwords.js: exports a ES Module API with the following structure:
 		#+begin_src ts
 interface PasswordAPI {
 	getHash(password: string): string;
