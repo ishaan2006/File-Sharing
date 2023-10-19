@@ -1,41 +1,25 @@
-// for now everything assumes that client requests are valid and non-malicious
+// for now, everything assumes that client requests are valid and non-malicious
 
 
-/* DATABASE NOTES:
-MAIN DATABASE:
+import {getHash, verifyHash}            from "./private/passwords.js"
+import * as mongoOps                    from "./mongo-operations.js"
+import { execSync }                     from "child_process"
+import express                          from "express"
+import crypto                           from "crypto"
+import multer                           from "multer"
+import https                            from "https"
+import { dirname, extname as _extname } from "path"
+import http                             from "http"
+import { fileURLToPath }                from "url"
+import fs                               from "fs"
 
-file hash -> [
-	sensitive, // delete file on db breach,
-	relative file location,
-	projected delete date,
-	user-friendly id,
-	uses remaining,
-	password hash,
-	store date,
-	salt,
-]
-
-SECONDARY DATABASE:
-
-user-friendly id -> file hash
-*/
-
-import {getHash, verifyHash} from "./private/passwords.js"
-import { execSync }          from "child_process"
-import express               from "express"
-import crypto                from "crypto"
-import multer                from "multer"
-import https                 from "https"
-import { dirname, extname }  from "path"
-import http                  from "http"
-import { fileURLToPath }     from "url"
-import fs                    from "fs"
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 const
-	upload = multer(),
+	upload = multer({
+		limits: { fileSize: "1gb" } // pretty much any file
+	}),
 	app = express(),
 
 	read = (location, encoding="utf-8") => fs.readFileSync(location, encoding),
@@ -73,6 +57,12 @@ const
 		["/"].concat(allowedGetLocations).map(e => `'${e}'`).join(", ")
 	}\n`
 
+
+function extname(path) {
+	// `path.extname(".dotfile")` returns "" for some reason
+	return _extname("a" + path)
+}
+
 function formatJSON(code="{}", {
 	objectNewline     = true,
 	tab               = "\t",
@@ -82,67 +72,67 @@ function formatJSON(code="{}", {
 	arrayOneLineSpace = " ", // if " ", [ ITEM ]. if "\t", [\tITEM\t]. etc
 }={}) {
 	if (typeof code !== "string")
-		throw TypeError`formatJSON() requires a string`;
+		throw TypeError`formatJSON() requires a string`
 
 	try { JSON.parse(code) }
 	catch { throw TypeError`formatJSON() requires a JSON string` }
 
 	if (/^\s*\{\s*\}\s*$/.test(code))
-		return "{}";
+		return "{}"
 	if (/^\s*\[\s*\]\s*$/.test(code))
-		return "[]";
+		return "[]"
 	if (/^("|'|`)(.|\n)*\1$/.test( code.replace(/\s+/g, "") ))
-		return code.replace(/(^\s*)|(\s*$)/g, "");
+		return code.replace(/(^\s*)|(\s*$)/g, "")
 
 	for (var i = 0, n = code.length, tabs = 0, output = "", inString = !1; i < n; i++) {
 		if (code[i] === '"' && code[i - 1] !== '\\')
-			inString = !inString;
+			inString = !inString
 
 		if (inString)
-			output += code[i];
+			output += code[i]
 		else if (/\s/.test(code[i]))
-			continue;
+			continue
 		else if (code[i] === "{")
-			output += `${code[i]}${newline}${tab.repeat(++tabs)}`;
+			output += `${code[i]}${newline}${tab.repeat(++tabs)}`
 		else if (code[i] === "[") {
 			if (!arrayOneLine) {
-				output += `${code[i]}${newline}${tab.repeat(++tabs)}`;
-				continue;
+				output += `${code[i]}${newline}${tab.repeat(++tabs)}`
+				continue
 			}
 			for (let arrayInString = !1, index = i + 1 ;; index++) {
 				if (code[index] === '"' && code[index - 1] !== '\\')
-					arrayInString = !arrayInString;
-				if (arrayInString) continue;
+					arrayInString = !arrayInString
+				if (arrayInString) continue
 				if (["{", "[", ","].includes(code[index])) {
-					output += `${code[i]}${newline}${tab.repeat(++tabs)}`;
-					break;
+					output += `${code[i]}${newline}${tab.repeat(++tabs)}`
+					break
 				} else if (code[index] === "]") {
 					output += `[${arrayOneLineSpace}${
 						code.substring(i + 1, index)
-					}${arrayOneLineSpace}]`;
-					i = index;
-					break;
+					}${arrayOneLineSpace}]`
+					i = index
+					break
 				}
 			}
 		} else if (["}", "]"].includes(code[i]))
-			output += `${newline}${tab.repeat(--tabs)}${code[i]}`;
+			output += `${newline}${tab.repeat(--tabs)}${code[i]}`
 		else if (code[i] === ":")
-			output += `${code[i]}${space}`;
+			output += `${code[i]}${space}`
 		else if (code[i] === ",") {
 			// objectNewline === true : }, {
 			// objectNewline === false: },\n\t{
-			let s = code.slice(i);
+			let s = code.slice(i)
 			output += code[i] + (!objectNewline &&
 				code[i + 1 + s.length - s.replace(/^\s+/, "").length] === "{" ?
 					`${space}` :
 					`${newline}${tab.repeat(tabs)}`
-			);
+			)
 		}
 		else
-			output += code[i];
+			output += code[i]
 	}
 
-	return output;
+	return output
 }
 
 function formatAsJSON(object = {}) {
@@ -180,13 +170,14 @@ function applyTemplate(filename, object={}) {
 }
 
 function shredFile(filepath, passes = 6) {
-	// for files marked as sensitive.
+	// for deleting files marked as sensitive.
 	// returns `true` on success, `false` on fail
 
 	if (!fs.existsSync(filepath))
-		return false;
+		return false
 
 	try {
+
 		var i, fd = fs.openSync(filepath, "w")
 
 		const stats = fs.fstatSync(fd)
@@ -196,6 +187,8 @@ function shredFile(filepath, passes = 6) {
 
 		const pwshFilepath = filepath.replace(/([ "'`])/g, "`$1")
 		const data = Buffer.allocUnsafe(stats.size)
+
+		try {
 
 		// hide file
 		execSync(`powershell -c "$file.Attributes = [IO.FileAttributes]::Hidden"`)
@@ -213,6 +206,11 @@ function shredFile(filepath, passes = 6) {
 					}, 315446400, 4354819199)` +
 				`).DateTime` +
 			`"`)
+
+		} catch {
+			// powershell is not there
+			// maybe try `pwsh`?
+		}
 
 		// shred file data
 		for (i = passes; i --> 0 ;)
@@ -243,6 +241,24 @@ function shredFile(filepath, passes = 6) {
 	return true
 }
 
+async function getUserFriendlyID(body = {}) {
+	function getRandomNumber(upperBound, exclusionList) {
+		let randomIndex = Math.floor(Math.random() * (upperBound + 1 - exclusionList.length))
+		let numExcludedElements = exclusionList.filter(i => i < randomIndex).length
+		return randomIndex + numExcludedElements
+	}
+
+	const sensitive = body.sensitive ?? false
+
+	const dbContents = await mongoOps.getAll()
+
+
+	console.log("dbContents:", dbContents)
+
+
+	return "tmpId-" + dbContents.length
+}
+
 
 app.use(function cors(req, res, next) {
 	res.setHeader("Access-Control-Allow-Origin",
@@ -258,7 +274,7 @@ app.use(function cors(req, res, next) {
 	next()
 })
 
-app.use(express.json())
+app.use(express.json({ limit: "1mb" }))
 
 app.use(function utils(req, res, next) {
 	req.port = req.connection.remotePort
@@ -273,11 +289,11 @@ app.use(function utils(req, res, next) {
 	) {
 		if (typeof returncode === "object") {
 			if (returncode.ret != null)
-				res.status(returncode.ret);
+				res.status(returncode.ret)
 
-			newline = returncode.lf ?? true;
-			message = returncode.msg ?? "";
-			returncode = returncode.ret ?? 200;
+			newline = returncode.lf ?? true
+			message = returncode.msg ?? ""
+			returncode = returncode.ret ?? 200
 		}
 		else if (arguments.length)
 			res.status(returncode);
@@ -300,7 +316,7 @@ app.use(function utils(req, res, next) {
 				link: linkHome ? '<a href="/">return to homepage</a>' : ""
 			})
 		} catch {
-			return msg ?? "Invalid Request";
+			return msg ?? "Invalid Request"
 		}
 	}
 
@@ -314,7 +330,7 @@ app.use(function utils(req, res, next) {
 	next()
 })
 
-app.post("/upload.html", upload.single("file"), (req, res) => {
+app.post("/upload.html", upload.single("file"), async (req, res) => {
 
 	if (!allowedOrigins.map(e => e + "/upload.html").concat(
 		allowedOrigins.map(e => e.replace(/:\d+$/, "") + "/upload.html")
@@ -333,28 +349,57 @@ app.post("/upload.html", upload.single("file"), (req, res) => {
 	body.originalname = file.originalname
 	body.url = "<unknown>"
 	body.destination = UPLOAD_DESTINATION + fileDigest + originalExtension + ".tmp"
+	body.projectedDeleteTime = Date.now() + (body.deleteMins * 6e4 || 0)
 
 	const exists = fs.existsSync(body.destination)
 	body.action = exists ? "update" : "upload"
 
+	res.setHeader("Content-Type", "text/html")
+
 	// `file.buffer` is not defined in the multer.diskStorage() callbacks
-	if (exists) {
-		console.log("file already exists");
-		// TODO: update information other than passwords.
+	existsBlock: if (exists) {
+		console.log("file already exists")
+		const dbElement = await mongoOps.get(fileDigest)
+
+		if (dbElement == null) {
+			console.log("file is present but db element is not; It was probably deleted manually")
+
+			exists = false
+			break existsBlock
+		}
+
+		dbElement[fileDigest].projectedDeleteTime = body.projectedDeleteTime
+		dbElement[fileDigest].usesRemaining       = body.uses
+		dbElement[fileDigest].originalName        = body.originalname
+		dbElement[fileDigest].sensitive           = body.sensitive
+
+		mongoOps.update(dbElement)
 		// TODO: let the user know somehow that passwords can't be updated by re-uploading
 	}
-	else
+
+
+	if (!exists) {
 		fs.writeFileSync(body.destination, file.buffer)
 
-	// TODO: update the main database
-	// TODO: update the secondary database
+		body.userFriendlyId = body.includeFriendly ? await getUserFriendlyID(body) : null
+
+		mongoOps.add({
+			[fileDigest]: {
+				relativeFileLocation : body.destination,
+				projectedDeleteTime  : body.projectedDeleteTime,
+				userFriendlyId       : body.userFriendlyId,
+				usesRemaining        : body.uses,
+				passwordHash         : getHash(body.passwordHash),
+				originalName         : body.originalname,
+				sensitive            : body.sensitive,
+			}
+		})
+
+		console.log("body:", body)
+	}
 
 	req.logRequest(200)
 
-	console.log("body:", body)
-	console.log("file:", file)
-
-	res.setHeader("Content-Type", "text/html")
 
 	res.send(
 		applyTemplate("./public/results.html", {

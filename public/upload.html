@@ -9,31 +9,22 @@
 	<link rel="stylesheet" type="text/css" href="./styles.css">
 
 	<style type="text/css">
+		input[type="checkbox"]:checked + label + :not(br) { display: inline }
+		input[type="checkbox"] + label + :not(br) { display: none }
+		input[type="number"] { width: 3rem }
+		body { margin-left: 1.25rem }
+		option { color: black }
+
 		input[type="file"] {
 			border-radius: 10px;
 			background-color: black;
 		}
 
-		input[type="checkbox"]:checked + label + :not(br) {
-			display: inline
-		}
-
-		input[type="checkbox"]:not(:checked) + label + :not(br) {
-			display: none
-		}
-
 		input:is([type="text"], [type="number"]) {
-			background: rgb(60, 60, 60);
+			background-color: rgb(60, 60, 60);
 			color: rgb(220, 220, 220);
 		}
 
-		input[type="number"] {
-			width: 3rem
-		}
-
-		body {
-			margin-left: 1.25rem
-		}
 	</style>
 
 	<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -91,9 +82,13 @@
 			}
 		})()
 
-		const hash = sha3_512
+		const getHash = sha3_512
 		const MIN_USES = 1
 		const MAX_USES = 500
+
+		// minutes into the future
+		const NOW = 0
+		const TOMORROW = 1440
 	</script>
 <body>
 	<h1>Upload File</h1>
@@ -109,8 +104,68 @@
 			Sensitive files are also shredded instead of just deleted.
 			They are shredded upon server breaches.
 		-->
-		<input type="checkbox" name="sensitive">
-		<label for="sensitive"><span>Sensitive</span></label>
+		<input type="checkbox" name="sensitive" onchange='
+			const $idSelect = $("select[name=id-format]")
+			const $timeSelect = $("select[name=time]")
+			const $highRisk = $(".high-risk")
+
+			$highRisk.toggle(!checked)
+
+			if (!checked)
+				return;
+
+			if ($idSelect.val() === "4\\d")
+				$idSelect.val("8\\d")
+			else if ($idSelect.val() === "4[A-Z]")
+				$idSelect.val("8[A-Z]")
+
+			if ($timeSelect.val() == 2 * TOMORROW)
+				$timeSelect.val(TOMORROW)
+
+		'>
+		<label for="sensitive">Sensitive</label>
+		<br><br>
+
+		<input type="checkbox" name="include-user-friendly" checked>
+		<label for="include-user-friendly">Include User Friendly ID</label>
+		<select name="id-format">
+			<option value="4\d" class="high-risk">0-9, 4 digits</option>
+			<option value="8\d">0-9, 8 digits</option>
+			<option value="4[A-Z]" class="high-risk">A-Z, 4 digits</option>
+			<option value="8[A-Z]" selected>A-Z, 8 digits</option>
+			<option value="4\w">A-Z + 0-9, 4 digits</option>
+			<option value="8\w">A-Z + 0-9, 8 digits</option>
+		</select>
+		<br><br>
+
+		<span>Guaranteed time allotted before deletion:&nbsp;</span>
+		<select name="time" onchange='
+			$("#other-time-div").toggle(value === "")
+		'>
+			<!-- values are in minutes. -->
+			<option value="2880" class="high-risk">2 days</option>
+			<option value="1440" selected>1 day</option>
+			<option value="1080">18 hours</option>
+			<option value="720">12 hours</option>
+			<option value="360">6 hours</option>
+			<option value="180">3 hours</option>
+			<option value="60">1 hour</option>
+			<option value="30">30 minutes</option>
+			<option value="10">10 minutes</option>
+			<option value="">other</option>
+		</select>
+
+		<div id="other-time-div" style="display: none">
+			<span>Time in minutes (up to 2 days): </span>
+			<input type="number" minlength="1" maxLength="9"
+				placeholder="time" min="0" name="other-time" oninput='
+					value = value.replace(/\D/g, "").replace(/^0+/, "")
+
+					if (value !== "")
+						value = Math.clamp(value, NOW, 2 * TOMORROW)
+			'>
+		</div>
+
 		<br><br>
 
 
@@ -130,7 +185,9 @@
 		'>
 		<label for="limited"><span>Password</span></label>
 		<div>
+			<!-- password-related things -->
 			<input type="text" name="password" placeholder="password" maxlength="100">
+
 			<button style="display: inline; margin-left: 1rem" onclick="
 				event.preventDefault()
 				this.previousElementSibling.value = newPassword()
@@ -154,19 +211,24 @@
 				return $form.call("reportValidity")
 
 			const
-				$sensitive     = $("input[name=sensitive]"),
-				$limitedUses   = $("input[name=limited]"),
-				$uses          = $("input[name=uses]"),
-				$fileInput     = $("input[name=file]"),
-				$usePassword   = $("input[name=usePassword]"),
-				$password      = $("input[name=password]"),
-				sensitive      = $sensitive.prop("checked"),
-				passwordString = $usePassword.prop("checked") ? $password.val() : "",
-				uses           = Math.clamp(+$uses.val(), MIN_USES, MAX_USES),
-				body           = {
-					passwordHash : hash(passwordString),
-					sensitive    : sensitive,
-					uses         : $limitedUses.prop("checked") ? uses : -1,
+				$includeFriendly = $("input[name=include-user-friendly]"),
+				$usePassword     = $("input[name=usePassword]"),
+				$otherTime       = $("input[name=other-time]"),
+				$sensitive       = $("input[name=sensitive]"),
+				$password        = $("input[name=password]"),
+				$limitedUses     = $("input[name=limited]"),
+				$fileInput       = $("input[name=file]"),
+				$time            = $("select[name=time]"),
+				$uses            = $("input[name=uses]"),
+				passwordString   = $usePassword.prop("checked") ? $password.val() : "",
+				time             = +($time.val() || $otherTime.val()),
+				uses             = Math.clamp(+$uses.val(), MIN_USES, MAX_USES),
+				body             = {
+					includeFriendly : $includeFriendly.prop("checked"),
+					passwordHash    : getHash(passwordString),
+					sensitive       : $sensitive.prop("checked"),
+					uses            : $limitedUses.prop("checked") ? uses : -1,
+					deleteMins      : Math.clamp(time, NOW, 2 * TOMORROW),
 				},
 				data = new FormData()
 
@@ -201,10 +263,15 @@
 				})
 				.then(newdom => document.documentElement.replaceWith(newdom.documentElement))
 				.catch(error => {
-					if (error !== "end")
+					error === "end" ||
 						$form.after($("<p>Something went wrong :)</p>"))
 				})
 		'>Submit</button>
 	</form>
+
+	<button onclick='
+		if (confirm("Are you sure you want to exit?"))
+			location.href = "/"
+	'>Return Home</button>
 </body>
 </html>
