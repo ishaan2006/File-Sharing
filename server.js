@@ -1,5 +1,6 @@
 // for now, everything assumes that client requests are valid and non-malicious
 
+import nextUserFriendlyId               from "./user-friendly-id.js"
 import {getHash, verifyHash}            from "./private/passwords.js"
 import * as mongoOps                    from "./mongo-operations.js"
 import shredFile                        from "./shred-file.js"
@@ -12,10 +13,11 @@ import http                             from "http"
 import { fileURLToPath }                from "url"
 import fs                               from "fs"
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
 
 const
+	__filename = fileURLToPath(import.meta.url),
+	__dirname = dirname(__filename),
+
 	upload = multer({
 		limits: { fileSize: "1gb" } // pretty much any file
 	}),
@@ -60,6 +62,8 @@ const
 
 function extname(path) {
 	// `path.extname(".dotfile")` returns "" for some reason
+	// this fixes that issue
+
 	return _extname("a" + path)
 }
 
@@ -170,26 +174,6 @@ function applyTemplate(filename, object={}) {
 }
 
 
-
-async function getUserFriendlyID(body = {}) {
-	function getRandomNumber(upperBound, exclusionList) {
-		let randomIndex = Math.floor(Math.random() * (upperBound + 1 - exclusionList.length))
-		let numExcludedElements = exclusionList.filter(i => i < randomIndex).length
-		return randomIndex + numExcludedElements
-	}
-
-	const sensitive = body.sensitive ?? false
-
-	const dbContents = await mongoOps.getAll()
-
-
-	console.log("dbContents:", dbContents)
-
-
-	return "tmpId-" + dbContents.length
-}
-
-
 app.use(function cors(req, res, next) {
 	res.setHeader("Access-Control-Allow-Origin",
 		allowedOrigins.includes(req.headers.origin) ?
@@ -274,10 +258,10 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 	const body = JSON.parse(req.body.json ?? null)
 	const file = req.file
 	const fileDigest = crypto.createHash("sha512").update(file.buffer).digest("hex")
-	const originalExtension = extname("a" + file.originalname)
+	const originalExtension = extname(file.originalname)
 
-	body.originalname = file.originalname
-	body.url = "<unknown>"
+	body.originalName = file.originalname
+	body.url = "<unknown>" // TODO: change this once downloading is a thing
 	body.destination = UPLOAD_DESTINATION + fileDigest + originalExtension + ".tmp"
 	body.projectedDeleteTime = Date.now() + (body.deleteMins * 6e4 || 0)
 
@@ -292,7 +276,8 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 		const dbElement = await mongoOps.get(fileDigest)
 
 		if (dbElement == null) {
-			console.log("file is present but db element is not; It was probably deleted manually")
+			console.log("file is present but the db element is not; It was probably deleted manually")
+			// TODO: handle when the element is present but the file is not
 
 			exists = false
 			break existsBlock
@@ -300,18 +285,18 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 
 		dbElement[fileDigest].projectedDeleteTime = body.projectedDeleteTime
 		dbElement[fileDigest].usesRemaining       = body.uses
-		dbElement[fileDigest].originalName        = body.originalname
+		dbElement[fileDigest].originalName        = body.originalName
 		dbElement[fileDigest].sensitive           = body.sensitive
 
 		mongoOps.update(dbElement)
 		// TODO: let the user know somehow that passwords can't be updated by re-uploading
 	}
 
-
+	// in case the `if exists` block changes `exists` to false
 	if (!exists) {
 		fs.writeFileSync(body.destination, file.buffer)
 
-		body.userFriendlyId = body.includeFriendly ? await getUserFriendlyID(body) : null
+		body.userFriendlyId = body.includeFriendly ? await nextUserFriendlyId(body) : null
 
 		mongoOps.add({
 			[fileDigest]: {
@@ -320,8 +305,9 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 				userFriendlyId       : body.userFriendlyId,
 				usesRemaining        : body.uses,
 				passwordHash         : getHash(body.passwordHash),
-				originalName         : body.originalname,
+				originalName         : body.originalName,
 				sensitive            : body.sensitive,
+				idFormat             : body.idFormat,
 			}
 		})
 

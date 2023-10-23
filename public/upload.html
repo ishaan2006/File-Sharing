@@ -8,8 +8,8 @@
 	<link rel="stylesheet" type="text/css" href="./styles.css">
 
 	<style type="text/css">
-		input[type="checkbox"]:checked + label + :not(br) { display: inline }
-		input[type="checkbox"] + label + :not(br) { display: none }
+		input[type="checkbox"]:checked + label[for] + :not(br) { display: inline }
+		input[type="checkbox"]         + label[for] + :not(br) { display: none }
 		input[type="number"] { width: 3rem }
 		body { margin-left: 1.25rem }
 		option { color: black }
@@ -23,7 +23,6 @@
 			background-color: rgb(60, 60, 60);
 			color: rgb(220, 220, 220);
 		}
-
 	</style>
 
 	<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
@@ -33,10 +32,11 @@
 			return this[0]?.[fname]?.(...args)
 		}
 
-		Math.clamp = function clamp(x, a = 0, b = 10) {
+		// https://github.com/rwaldron/proposal-math-extensions
+		Math.clamp ??= function clamp(x, a = 0, b = 10) {
 			// the order of the interval endpoints doesn't matter
 			if (a > b)
-				[a, b] = [b, a];
+				[a, b] = [b, a]
 
 			return (
 				x < a ? a :
@@ -74,7 +74,7 @@
 						&& uppercase.some(e => password.includes(e))
 						&& symbols.some(e => password.includes(e))
 						&& digits.some(e => password.includes(e))
-						) return password
+					) return password
 
 					continue
 				}
@@ -89,6 +89,7 @@
 		const NOW = 0
 		const TOMORROW = 1440
 	</script>
+</head>
 <body>
 	<h1>Upload File</h1>
 	<form method="POST">
@@ -101,7 +102,11 @@
 
 		<!--
 			Sensitive files are also shredded instead of just deleted.
-			They are shredded upon server breaches.
+			They are shredded when server/database breaches are noticed.
+
+			There is not a way for us to notify when database breaches were,
+			but there will be eventually
+			TODO: do this ^^^^^
 		-->
 		<input type="checkbox" name="sensitive" onchange='
 			const $idSelect = $("select[name=id-format]")
@@ -111,7 +116,9 @@
 			$highRisk.toggle(!checked)
 
 			if (!checked)
-				return;
+				return
+
+			// disallow choosing insecure options
 
 			if ($idSelect.val() === "4\\d")
 				$idSelect.val("8\\d")
@@ -120,6 +127,8 @@
 
 			if ($timeSelect.val() == 2 * TOMORROW)
 				$timeSelect.val(TOMORROW)
+
+			// TODO: add password restrictions for sensitive files
 		'>
 		<label for="sensitive">Sensitive</label>
 		<br><br>
@@ -211,23 +220,25 @@
 			const
 				$includeFriendly = $("input[name=include-user-friendly]"),
 				$usePassword     = $("input[name=usePassword]"),
-				$idFormat        = $("select[name=id-format]"),
 				$otherTime       = $("input[name=other-time]"),
+				$idFormat        = $("select[name=id-format]"),
 				$sensitive       = $("input[name=sensitive]"),
 				$password        = $("input[name=password]"),
 				$limitedUses     = $("input[name=limited]"),
-				$fileInput       = $("input[name=file]"),
 				$time            = $("select[name=time]"),
+				$fileInput       = $("input[name=file]"),
 				$uses            = $("input[name=uses]"),
+
 				passwordString   = $usePassword.prop("checked") ? $password.val() : "",
 				time             = +($time.val() || $otherTime.val()),
 				uses             = Math.clamp(+$uses.val(), MIN_USES, MAX_USES),
 				body             = {
 					includeFriendly : $includeFriendly.prop("checked"),
 					passwordHash    : getHash(passwordString),
-					sensitive       : $sensitive.prop("checked"),
-					uses            : $limitedUses.prop("checked") ? uses : -1,
 					deleteMins      : Math.clamp(time, NOW, 2 * TOMORROW),
+					sensitive       : $sensitive.prop("checked"),
+					idFormat        : $idFormat.val(),
+					uses            : $limitedUses.prop("checked") ? uses : -1,
 				},
 				data = new FormData()
 
