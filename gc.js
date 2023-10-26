@@ -5,7 +5,8 @@ import * as mongoOps                from "./mongo-operations.js"
 import shredFile                    from "./shred-file.js"
 import fs                           from "fs"
 
-export function collect() {
+export async function collect() {
+	// collect garbage
 	const dbEntries = await mongoOps.getAll().map(e => Object.entries(e)[0])
 
 	for (const [key, value] of dbEntries) {
@@ -19,8 +20,10 @@ export function collect() {
 	}
 }
 
-export function handleBreach() {
-	const dbEntries = await mongoOps.getAll().map(e => Object.entries(e)[0])
+export async function handleBreach() {
+	// shred sensitive files
+
+	const dbEntries = (await mongoOps.getAll()).map(e => Object.entries(e)[0])
 
 	for (const [key, value] of dbEntries) {
 		if (!value.sensitive)

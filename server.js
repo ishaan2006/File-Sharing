@@ -1,9 +1,13 @@
 // for now, everything assumes that client requests are valid and non-malicious
+// TODO: change this ^^^^
 
+// library abstractions
 import nextUserFriendlyId               from "./user-friendly-id.js"
 import {getHash, verifyHash}            from "./private/passwords.js"
 import * as mongoOps                    from "./mongo-operations.js"
+import { formatAsJSONHTML }             from "./format-json.js"
 import shredFile                        from "./shred-file.js"
+
 import express                          from "express"
 import crypto                           from "crypto"
 import multer                           from "multer"
@@ -42,21 +46,23 @@ const
 		`http://${IP}:${HTTP_PORT}`, `http://localhost:${HTTP_PORT}`,
 	],
 	allowedGetAddressLocations = [
+		// this only includes the ones with default routers
 		"/index.html",
 		"/upload.html",
-		"/download.html",
 		"/robots.txt",
+		"/download.html",
+		// maybe add docs.html?
 	],
 	allowedGetMiscellaneousLocations = [
 		"/styles.css",
 		"/favicon.ico",
 		"/error-template.html",
-		"/results.html",
+		"/upload-results.html",
 	],
 	allowedGetLocations = allowedGetAddressLocations.concat(allowedGetMiscellaneousLocations
 	),
 	allowedGetLocationsString = `Allowed paths for GET: ${
-		["/"].concat(allowedGetLocations).map(e => `'${e}'`).join(", ")
+		["/", "/download.html"].concat(allowedGetLocations).map(e => `'${e}'`).join(", ")
 	}\n`
 
 
@@ -65,99 +71,6 @@ function extname(path) {
 	// this fixes that issue
 
 	return _extname("a" + path)
-}
-
-function formatJSON(code="{}", {
-	objectNewline     = true,
-	tab               = "\t",
-	newline           = "\n",
-	space             = " ",
-	arrayOneLine      = true,
-	arrayOneLineSpace = " ", // if " ", [ ITEM ]. if "\t", [\tITEM\t]. etc
-}={}) {
-	if (typeof code !== "string")
-		throw TypeError`formatJSON() requires a string`
-
-	try { JSON.parse(code) }
-	catch { throw TypeError`formatJSON() requires a JSON string` }
-
-	if (/^\s*\{\s*\}\s*$/.test(code))
-		return "{}"
-	if (/^\s*\[\s*\]\s*$/.test(code))
-		return "[]"
-	if (/^("|'|`)(.|\n)*\1$/.test( code.replace(/\s+/g, "") ))
-		return code.replace(/(^\s*)|(\s*$)/g, "")
-
-	for (var i = 0, n = code.length, tabs = 0, output = "", inString = !1; i < n; i++) {
-		if (code[i] === '"' && code[i - 1] !== '\\')
-			inString = !inString
-
-		if (inString)
-			output += code[i]
-		else if (/\s/.test(code[i]))
-			continue
-		else if (code[i] === "{")
-			output += `${code[i]}${newline}${tab.repeat(++tabs)}`
-		else if (code[i] === "[") {
-			if (!arrayOneLine) {
-				output += `${code[i]}${newline}${tab.repeat(++tabs)}`
-				continue
-			}
-			for (let arrayInString = !1, index = i + 1 ;; index++) {
-				if (code[index] === '"' && code[index - 1] !== '\\')
-					arrayInString = !arrayInString
-				if (arrayInString) continue
-				if (["{", "[", ","].includes(code[index])) {
-					output += `${code[i]}${newline}${tab.repeat(++tabs)}`
-					break
-				} else if (code[index] === "]") {
-					output += `[${arrayOneLineSpace}${
-						code.substring(i + 1, index)
-					}${arrayOneLineSpace}]`
-					i = index
-					break
-				}
-			}
-		} else if (["}", "]"].includes(code[i]))
-			output += `${newline}${tab.repeat(--tabs)}${code[i]}`
-		else if (code[i] === ":")
-			output += `${code[i]}${space}`
-		else if (code[i] === ",") {
-			// objectNewline === true : }, {
-			// objectNewline === false: },\n\t{
-			let s = code.slice(i)
-			output += code[i] + (!objectNewline &&
-				code[i + 1 + s.length - s.replace(/^\s+/, "").length] === "{" ?
-					`${space}` :
-					`${newline}${tab.repeat(tabs)}`
-			)
-		}
-		else
-			output += code[i]
-	}
-
-	return output
-}
-
-function formatAsJSON(object = {}) {
-	return formatJSON( JSON.stringify(object) )
-}
-
-function escapeHTML(str, {tabLength = 6}={}) {
-	return str
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/ /g, "&nbsp;")
-		.replace(/\t/g, "&nbsp;".repeat(tabLength))
-		.replace(/\n/g, "<br>")
-}
-
-function formatAsJSONHTML(object = {}) {
-	return escapeHTML(
-		formatAsJSON(object)
-	)
 }
 
 function applyTemplate(filename, object={}) {
@@ -210,7 +123,7 @@ app.use(function utils(req, res, next) {
 			returncode = returncode.ret ?? 200
 		}
 		else if (arguments.length)
-			res.status(returncode);
+			res.status(returncode); // this semicolon is required
 
 		(newline ? console.log : process.stdout.write)(`${req.ipport} requesting ${
 			["HEAD", "OPTIONS"].includes(req.method) ? "the" : "to"
@@ -265,7 +178,7 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 	body.destination = UPLOAD_DESTINATION + fileDigest + originalExtension + ".tmp"
 	body.projectedDeleteTime = Date.now() + (body.deleteMins * 6e4 || 0)
 
-	const exists = fs.existsSync(body.destination)
+	let exists = fs.existsSync(body.destination)
 	body.action = exists ? "update" : "upload"
 
 	res.setHeader("Content-Type", "text/html")
@@ -273,7 +186,7 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 	// `file.buffer` is not defined in the multer.diskStorage() callbacks
 	existsBlock: if (exists) {
 		console.log("file already exists")
-		const dbElement = await mongoOps.get(fileDigest)
+		const dbElement = await mongoOps.get(fileDigest, { decrementUses: false })
 
 		if (dbElement == null) {
 			console.log("file is present but the db element is not; It was probably deleted manually")
@@ -318,7 +231,7 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 
 
 	res.send(
-		applyTemplate("./public/results.html", {
+		applyTemplate("./public/upload-results.html", {
 			results: formatAsJSONHTML({
 				json: body,
 				file: {
@@ -333,20 +246,49 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 	)
 })
 
-app.get(/\/(home|index)?$/, (req, res) => {
+app.get(/^\/(home(\.html?)?|index)?$/, (req, res) => {
 	req.logRequest(303, "use '/index.html'")
 
 	res.redirect(303, "/index.html")
 })
 
 // simplify the requests
-app.get(/\/(upload|download|delete)$/, (req, res) => {
+app.get(/^\/(upload|download|delete)\.htm$/, (req, res) => {
+	// .htm -> .html
+
+	req.logRequest(303, `use '${req.url + "l"}'`)
+
+	res.redirect(303, req.url + "l")
+})
+app.get(/^\/(upload|download|delete)$/, (req, res) => {
+	// extension -> .html
 
 	req.logRequest(303, `use '${req.url + ".html"}'`)
 
 	res.redirect(303, req.url + ".html")
 })
 
+app.get(/^\/download\.html\?pass=[\da-fA-Z]{128}&type=(short-id|hash)&id=[A-Za-z\d]+$/, (req, res, next) => {
+	console.log("query: %o", req.query)
+
+	const queryKeys = Object.keys(req.query)
+
+	if (req.referrer === "direct address")
+		return next() // interpret the request as a normal url lookup
+
+	const query = req.query
+
+	query.pass = query.pass.toLowerCase()
+	query.id = query.id.toLowerCase()
+
+	req.logRequest(501)
+
+	res.setHeader("Content-Type", "text/html")
+	res.send("<p>Not Implemented</p>")
+	// TODO: get the file from the database
+
+	// TODO: differentiate between a GET for the html, or a GET for a download (from the form).
+})
 
 for (let loc of allowedGetAddressLocations)
 	app.get(loc, (req, res) => {

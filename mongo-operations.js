@@ -28,6 +28,7 @@ export async function add(element) {
 
 	client.close()
 }
+
 export async function update(element) {
 	const client = await connect()
 	const db = client.db("File-Sharing")
@@ -49,7 +50,7 @@ export async function update(element) {
 	if (element[fileDigest].sensitive)
 		updates[fileDigest].sensitive = true
 
-	await collection.updateOne(query, { $set: updates })
+	await main.updateOne(query, { $set: updates })
 
 	// the secondary collection shouldn't need to be changed...
 	// so we don't need to update it here
@@ -58,25 +59,50 @@ export async function update(element) {
 
 	client.close()
 }
-export async function get(key) {
+
+export async function get(key, {decrementUses=false, removeFile=false, input="hash"}={}) {
 	const client = await connect()
 	const db = client.db("File-Sharing")
 	const main = db.collection("main")
 
-	let ret = await main.findOne({
-		[key]: { $exists: true }
-	})
+	if (input !== "hash" && input !== "short-id")
+		throw Error`input must be a hash or a short id`
 
-	client.close()
+
+	const query = input === "hash" ? {
+		[key]: { $exists: true }
+	} : {
+		[something]: {
+			userFriendlyId: key
+		}
+	}
+
+	const ret = await main.findOne(query)
+
+
+	if (decrementUses && ret[key].usesRemaining > 0) {
+		const updates = { [key]: {
+			usesRemaining: --ret[key].usesRemaining
+		} }
+
+		await main.updateOne(query, { $set: updates })
+
+		client.close()
+
+		if (ret[key].usesRemaining === 0)
+			await remove(key, removeFile)
+	} else
+		client.close()
 
 	return ret
 }
-export async function remove(key) {
+
+export async function remove(key, removeFile=true) {
 	const client = await connect()
 	const db = client.db("File-Sharing")
 	const main = db.collection("main")
 	const secondary = db.collection("user-keys")
-	const values = Object.values(await get(key))[0]
+	const values = Object.values(await get(key, false, false))[0]
 
 	await Promise.all([
 		// only remove from the secondary database if it is there
@@ -84,7 +110,7 @@ export async function remove(key) {
 			secondary.deleteOne({
 				[values.userFriendlyId]: { $exists: true }
 			}),
-		fs.existsSync(values.relativeFileLocation) &&
+		removeFile && fs.existsSync(values.relativeFileLocation) &&
 			fs.rm(values.relativeFileLocation),
 		main.deleteOne({
 			[key]: { $exists: true }
@@ -93,6 +119,7 @@ export async function remove(key) {
 
 	client.close()
 }
+
 export async function getAll() {
 	const client = await connect()
 	const db = client.db("File-Sharing")
@@ -102,4 +129,13 @@ export async function getAll() {
 	client.close()
 
 	return docs
+}
+
+export async function lookup(key, type, dcr) {
+	throw Error`Not Implemented`
+	// get the file content
+
+	if (type === "hash")
+		return await get(key, true, false)
+
 }

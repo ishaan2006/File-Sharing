@@ -18,6 +18,7 @@ function bisectRight(arr, x) {
 
 	return lo
 }
+
 function randomInt(max, exclusions=[]) {
 	// uniform random number in the range [0, max] ...
 	// excluding any number in `exclusions` ...
@@ -44,17 +45,23 @@ function randomInt(max, exclusions=[]) {
 
 	return current
 }
+
 function base26DigitMap(c) {
-	return String.fromCharCode(c.charCodeAt() + (code < ":".charCodeAt() ?
+	const code = c.charCodeAt()
+
+	return String.fromCharCode(code + (code < ":".charCodeAt() ?
 		49 : 10
 	));
 }
+
 function base26DigitReverseMap(c) {
 	const code = c.charCodeAt()
+
 	return String.fromCharCode(code - (code < "k".charCodeAt() ?
 		49 : 10
 	));
 }
+
 async function databaseIdsOfFormat(idFormat) {
 	const
 		client     = await mongoOps.connect(),
@@ -78,6 +85,7 @@ async function databaseIdsOfFormat(idFormat) {
 
 	return values
 }
+
 const mapFns = {
 	// id format to random integer on the range
 	"4\\d"(exclusionList=[]) {
@@ -117,5 +125,5 @@ const mapFns = {
 export default async function nextUserFriendlyId(body) {
 	const idFormat = body.idFormat
 
-	return mapFns[idFormat](await databaseIdsOfFormat(idFormat))
+	return mapFns[idFormat](await databaseIdsOfFormat(idFormat)).toUpperCase()
 }

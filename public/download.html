@@ -9,18 +9,90 @@
 
 	<style type="text/css">
 		body { margin-left: 1.25rem }
+		option, select, input, textarea {
+			color: black;
+		}
 	</style>
 
+	<script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 	<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/emn178/js-sha3/build/sha3.min.js"></script>
 
-	<script type="text/javascript">
+	<script type="text/javascript" defer>
 		const getHash = sha3_512
+		$.fn.call = function call(fname, ...args) {
+			return this[0]?.[fname]?.(...args)
+		}
+
+		$(function onready() {
+			const
+				search = location.search,
+				$input = $("textarea[name=id]"),
+				$select = $("select[name=type]"),
+				idRegex = /^\?(?:f?id?|friendly(?:-id)?)=/,
+				hashRegex = /^\?(?:f(?:ile)?)?-?h(?:ash)?=/,
+				value = search.slice(search.indexOf("=") + 1)
+
+			$input.val(value)
+			$input.attr("cols", Math.max(20, value.length))
+
+			if (hashRegex.test(search))
+				return $select.val("hash")
+
+			if (idRegex.test(search))
+				return $select.val("short-id")
+
+			console.log("unknown search parameter")
+		})
 	</script>
 </head>
 <body>
 	<h1>Download File</h1>
-	<!-- <form>
-		<button type="submit"></button>
-	</form> -->
+	<form>
+		<label style="height: 10rem">
+			<span>Identifier:</span>
+			<textarea type="text" name="id" required rows="1" placeholder="id or hash" oninput='
+				const $this = $(this)
+
+				$this.attr("cols", Math.max(20, $this.val().length))
+			'></textarea>
+		</label>
+
+		<br/>
+		<br/>
+
+		<label for="type">Identifier type:&nbsp;</label>
+		<select name="type">
+			<option value="hash" selected>Hash</option>
+			<option value="short-id">Short Id</option>
+		</select>
+
+		<br/>
+		<br/>
+
+		<label for="pass">Password:&nbsp;</label>
+		<input type="text" name="pass" placeholder="password"/>
+
+		<br/>
+
+		<button type="submit" onclick='
+			event.preventDefault()
+			const $form = $("form")
+
+			if (!$form.call("checkValidity"))
+				return $form.call("reportValidity")
+
+			fetch(`/download.html?pass=${ getHash($("input[name=pass]").val() )
+			}&type=${ $("select[name=type]").val()
+			}&id=${ $("textarea[name=id]").val()
+			}`, {
+				method   : "GET",
+				referrer : location.href,
+			}).then(res => {
+				console.log(window.response = res)
+			})
+
+			console.log(window.event = event)
+		'>Submit</button>
+	</form>
 </body>
 </html>
