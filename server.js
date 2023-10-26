@@ -268,7 +268,7 @@ app.get(/^\/(upload|download|delete)$/, (req, res) => {
 	res.redirect(303, req.url + ".html")
 })
 
-app.get(/^\/download\.html\?pass=[\da-fA-Z]{128}&type=(short-id|hash)&id=[A-Za-z\d]+$/, (req, res, next) => {
+app.get(/^\/download\.html\?type=(short-id|hash)&id=[A-Za-z\d]+$/, (req, res, next) => {
 	console.log("query: %o", req.query)
 
 	const queryKeys = Object.keys(req.query)
@@ -276,10 +276,8 @@ app.get(/^\/download\.html\?pass=[\da-fA-Z]{128}&type=(short-id|hash)&id=[A-Za-z
 	if (req.referrer === "direct address")
 		return next() // interpret the request as a normal url lookup
 
-	const query = req.query
-
-	query.pass = query.pass.toLowerCase()
-	query.id = query.id.toLowerCase()
+	const pass = req.headers["Authentication"].replace(/^Bearer /, "").toLowerCase()
+	const id = req.query.id.toLowerCase()
 
 	req.logRequest(501)
 

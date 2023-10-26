@@ -81,12 +81,14 @@
 			if (!$form.call("checkValidity"))
 				return $form.call("reportValidity")
 
-			fetch(`/download.html?pass=${ getHash($("input[name=pass]").val() )
-			}&type=${ $("select[name=type]").val()
+			fetch(`/download.html?type=${ $("select[name=type]").val()
 			}&id=${ $("textarea[name=id]").val()
 			}`, {
 				method   : "GET",
 				referrer : location.href,
+				headers  : {
+					"Authentication": "Bearer " + getHash($("input[name=pass]").val())
+				},
 			}).then(res => {
 				console.log(window.response = res)
 			})
