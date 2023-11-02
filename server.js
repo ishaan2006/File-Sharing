@@ -2,25 +2,37 @@
 // TODO: change this ^^^^
 
 // library abstractions
-import nextUserFriendlyId               from "./user-friendly-id.js"
-import {getHash, verifyHash}            from "./private/passwords.js"
-import * as mongoOps                    from "./mongo-operations.js"
-import { formatAsJSONHTML }             from "./format-json.js"
-import shredFile                        from "./shred-file.js"
+import nextUserFriendlyId                    from "./user-friendly-id.js"
+import { verifyHash, cipherDigest, decrypt } from "./private/secrets.js"
+import { formatAsJSONHTML }                  from "./format-json.js"
+import shredFile                             from "./shred-file.js"
+import * as db                               from "./db.js"
+import {
+	extname,
+	pathFromDigest,
+	// pathFromDbObj,
+	// UPLOAD_DESTINATION
+}                                            from "./rel-path.js"
 
-import express                          from "express"
-import crypto                           from "crypto"
-import multer                           from "multer"
-import https                            from "https"
-import { dirname, extname as _extname } from "path"
-import http                             from "http"
-import { fileURLToPath }                from "url"
-import fs                               from "fs"
+import express                               from "express"
+import crypto                                from "crypto"
+import multer                                from "multer"
+import https                                 from "https"
+import { dirname }                           from "path"
+import http                                  from "http"
+import { fileURLToPath }                     from "url"
+import fs                                    from "fs"
+
 
 
 const
+	DEBUG_MODE = false,
+
 	__filename = fileURLToPath(import.meta.url),
 	__dirname = dirname(__filename),
+
+	b64encode = x => Buffer.from(x).toString("base64"),
+	b64decode = x => Buffer.from(x, "base64").toString(),
 
 	upload = multer({
 		limits: { fileSize: "1gb" } // pretty much any file
@@ -35,7 +47,6 @@ const
 		cert: read("./server.crt"),
 	},
 
-	UPLOAD_DESTINATION = "private/uploads/",
 	ALLOWED_METHODS = "GET,POST,OPTIONS",
 	ROOT = __dirname + "/public/",
 	HTTPS_PORT = 443,
@@ -66,13 +77,6 @@ const
 	}\n`
 
 
-function extname(path) {
-	// `path.extname(".dotfile")` returns "" for some reason
-	// this fixes that issue
-
-	return _extname("a" + path)
-}
-
 function applyTemplate(filename, object={}) {
 	var htmlContent = read(filename)
 
@@ -84,6 +88,18 @@ function applyTemplate(filename, object={}) {
 		)
 
 	return htmlContent
+}
+
+function getFileDigest(buf, ext) {
+	// 76-byte space |-> 64-byte space
+	// The final hash is more likely to collide,
+	// but the buffer hash is much less likely now,
+	// with an extra 16 bytes
+
+	return crypto.createHash("sha512")
+		.update(crypto.createHash("sha384").update(buf).digest())
+		.update(crypto.createHash("sha224").update(ext).digest())
+		.digest("hex")
 }
 
 
@@ -170,12 +186,14 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 
 	const body = JSON.parse(req.body.json ?? null)
 	const file = req.file
-	const fileDigest = crypto.createHash("sha512").update(file.buffer).digest("hex")
 	const originalExtension = extname(file.originalname)
+	// the digest includes the file data and the extension
+	const fileDigest = getFileDigest(file.buffer, originalExtension)
 
 	body.originalName = file.originalname
 	body.url = "<unknown>" // TODO: change this once downloading is a thing
-	body.destination = UPLOAD_DESTINATION + fileDigest + originalExtension + ".tmp"
+	// TODO: maybe include the original name in the destination, or the digest?
+	body.destination = pathFromDigest(fileDigest)
 	body.projectedDeleteTime = Date.now() + (body.deleteMins * 6e4 || 0)
 
 	let exists = fs.existsSync(body.destination)
@@ -184,44 +202,55 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 	res.setHeader("Content-Type", "text/html")
 
 	// `file.buffer` is not defined in the multer.diskStorage() callbacks
-	existsBlock: if (exists) {
+	updatingBlock: if (exists) {
 		console.log("file already exists")
-		const dbElement = await mongoOps.get(fileDigest, { decrementUses: false })
+		const dbElement = await db.get(fileDigest, { decrementUses: false })
 
 		if (dbElement == null) {
+			// TODO: in the future, this might be because the file hasn't been gc collected yet
 			console.log("file is present but the db element is not; It was probably deleted manually")
 			// TODO: handle when the element is present but the file is not
 
 			exists = false
-			break existsBlock
+			break updatingBlock
 		}
 
-		dbElement[fileDigest].projectedDeleteTime = body.projectedDeleteTime
-		dbElement[fileDigest].usesRemaining       = body.uses
-		dbElement[fileDigest].originalName        = body.originalName
-		dbElement[fileDigest].sensitive           = body.sensitive
+		dbElement.projectedDeleteTime = body.projectedDeleteTime
+		dbElement.usesRemaining       = body.uses
+		dbElement.originalName        = body.originalName
+		dbElement.sensitive           = body.sensitive
 
-		mongoOps.update(dbElement)
+		db.update(dbElement)
 		// TODO: let the user know somehow that passwords can't be updated by re-uploading
 	}
 
 	// in case the `if exists` block changes `exists` to false
 	if (!exists) {
-		fs.writeFileSync(body.destination, file.buffer)
+		// TODO: actually use this on the client side.
+		// res.status(202).send(`processing. wait ~${body.sensitive ? 6 : 1} seconds + latency.`)
+
+		const {
+			hash: passwordHash,
+			buffer: encryptedBuffer,
+			data: encryptionData,
+		} = cipherDigest(file.buffer, body.passwordHash, body.sensitive)
+
+		fs.writeFileSync(body.destination, encryptedBuffer)
+
 
 		body.userFriendlyId = body.includeFriendly ? await nextUserFriendlyId(body) : null
 
-		mongoOps.add({
-			[fileDigest]: {
-				relativeFileLocation : body.destination,
-				projectedDeleteTime  : body.projectedDeleteTime,
-				userFriendlyId       : body.userFriendlyId,
-				usesRemaining        : body.uses,
-				passwordHash         : getHash(body.passwordHash),
-				originalName         : body.originalName,
-				sensitive            : body.sensitive,
-				idFormat             : body.idFormat,
-			}
+		await db.add({
+			projectedDeleteTime : body.projectedDeleteTime,
+			userFriendlyId      : body.userFriendlyId,
+			usesRemaining       : body.uses,
+			originalName        : body.originalName,
+			sensitive           : body.sensitive,
+			idFormat            : body.idFormat,
+
+			encryptionData,
+			passwordHash,
+			fileDigest,
 		})
 
 		console.log("body:", body)
@@ -229,20 +258,36 @@ app.post("/upload.html", upload.single("file"), async (req, res) => {
 
 	req.logRequest(200)
 
-
-	res.send(
-		applyTemplate("./public/upload-results.html", {
-			results: formatAsJSONHTML({
-				json: body,
-				file: {
-					encoding: file.encoding,
-					mimetype: file.mimetype,
-					bytes: file.size,
-				}
+	if (DEBUG_MODE)
+		res.send(
+			applyTemplate("./public/upload-results.html", {
+				results: formatAsJSONHTML({
+					json: body,
+					file: {
+						encoding: file.encoding,
+						mimetype: file.mimetype,
+						bytes: file.size,
+					}
+				})
+					.replace(/&quot;(\w+)&quot;(?=:)/g, "$1")
+					.replace(/&quot;&lt;(\w+)&gt;&quot;/g, "$1")
 			})
-				.replace(/&quot;(\w+)&quot;(?=:)/g, "$1")
-				.replace(/&quot;&lt;(\w+)&gt;&quot;/g, "$1")
-		})
+		)
+	else res.send(
+		applyTemplate("./public/upload-results.html", {
+				results: formatAsJSONHTML({
+					projectedDeleteTime : new Date(body.projectedDeleteTime).toString(),
+					userFriendlyId      : body.userFriendlyId,
+					originalName        : body.originalName,
+					sensitive           : body.sensitive,
+					action              : body.action,
+					uses                : body.uses,
+					url                 : body.url,
+				})
+					.replace(/&quot;(\w+)&quot;(?=:)/g, "$1")
+					.replace(/&quot;&lt;(\w+)&gt;&quot;/g, "$1")
+			})
+		
 	)
 })
 
@@ -276,8 +321,11 @@ app.get(/^\/download\.html\?type=(short-id|hash)&id=[A-Za-z\d]+$/, (req, res, ne
 	if (req.referrer === "direct address")
 		return next() // interpret the request as a normal url lookup
 
-	const pass = req.headers["Authentication"].replace(/^Bearer /, "").toLowerCase()
-	const id = req.query.id.toLowerCase()
+	const pass = b64decode(req.headers.Authorization.replace(/^Basic /, ""))
+		.slice(1) // remove colon at the start
+		.toLowerCase() // in case the hash is uppercase
+	const id   = req.query.id.toLowerCase()
+	const type = req.query.type
 
 	req.logRequest(501)
 

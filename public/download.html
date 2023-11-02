@@ -9,6 +9,8 @@
 
 	<style type="text/css">
 		body { margin-left: 1.25rem }
+
+		/* :not(:is(h1, label, span, button)) */
 		option, select, input, textarea {
 			color: black;
 		}
@@ -18,19 +20,20 @@
 	<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/emn178/js-sha3/build/sha3.min.js"></script>
 
 	<script type="text/javascript" defer>
-		const getHash = sha3_512
+		const encodedHash = x => btoa(sha3_512(x))
+
 		$.fn.call = function call(fname, ...args) {
 			return this[0]?.[fname]?.(...args)
 		}
 
 		$(function onready() {
 			const
-				search = location.search,
-				$input = $("textarea[name=id]"),
-				$select = $("select[name=type]"),
-				idRegex = /^\?(?:f?id?|friendly(?:-id)?)=/,
-				hashRegex = /^\?(?:f(?:ile)?)?-?h(?:ash)?=/,
-				value = search.slice(search.indexOf("=") + 1)
+				{search}  = location,
+				value     = search.slice(search.indexOf("=") + 1),
+				$input    = $("#id"),
+				$select   = $("#type"),
+				idRegex   = /^\?(?:f?id?|friendly(?:-id)?)=/,
+				hashRegex = /^\?(?:f(?:ile)?)?-?h(?:ash)?=/
 
 			$input.val(value)
 			$input.attr("cols", Math.max(20, value.length))
@@ -41,7 +44,10 @@
 			if (idRegex.test(search))
 				return $select.val("short-id")
 
-			console.log("unknown search parameter")
+			console.log(/\??/.test(search) ?
+				"no search parameter provided" :
+				"unknown search parameter"
+			)
 		})
 	</script>
 </head>
@@ -50,7 +56,7 @@
 	<form>
 		<label style="height: 10rem">
 			<span>Identifier:</span>
-			<textarea type="text" name="id" required rows="1" placeholder="id or hash" oninput='
+			<textarea type="text" name="id" id="id" required rows="1" placeholder="id or hash" oninput='
 				const $this = $(this)
 
 				$this.attr("cols", Math.max(20, $this.val().length))
@@ -61,7 +67,7 @@
 		<br/>
 
 		<label for="type">Identifier type:&nbsp;</label>
-		<select name="type">
+		<select name="type" id="type">
 			<option value="hash" selected>Hash</option>
 			<option value="short-id">Short Id</option>
 		</select>
@@ -70,7 +76,7 @@
 		<br/>
 
 		<label for="pass">Password:&nbsp;</label>
-		<input type="text" name="pass" placeholder="password"/>
+		<input type="text" name="pass" id="pass" placeholder="password"/>
 
 		<br/>
 
@@ -81,17 +87,13 @@
 			if (!$form.call("checkValidity"))
 				return $form.call("reportValidity")
 
-			fetch(`/download.html?type=${ $("select[name=type]").val()
-			}&id=${ $("textarea[name=id]").val()
-			}`, {
+			fetch(`/download.html?type=${ $("#type").val() }&id=${ $("#id").val() }`, {
 				method   : "GET",
 				referrer : location.href,
 				headers  : {
-					"Authentication": "Bearer " + getHash($("input[name=pass]").val())
+					Authorization: "Basic " + encodedHash(":" + $("#pass").val())
 				},
-			}).then(res => {
-				console.log(window.response = res)
-			})
+			}).then(res => console.log(window.response = res))
 
 			console.log(window.event = event)
 		'>Submit</button>

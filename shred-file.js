@@ -3,8 +3,8 @@ import crypto       from "crypto"
 import fs           from "fs"
 
 
-export default function shredFile(filepath, passes = 6) {
-	// for deleting files marked as sensitive.
+export default function shredFileSync(filepath, passes = 6) {
+	// for synchronously deleting files marked as sensitive
 	// returns `true` on success, `false` on fail
 
 	if (!fs.existsSync(filepath))
@@ -20,10 +20,9 @@ export default function shredFile(filepath, passes = 6) {
 			return false
 
 		const pwshFilepath = filepath.replace(/([ "'`])/g, "`$1")
-		const data = Buffer.allocUnsafe(stats.size)
+		const data = Buffer.allocUnsafe(stats.size) // unsafe is fine here
 
 		try {
-
 			// hide file
 			execSync(`powershell -c "$file.Attributes = [IO.FileAttributes]::Hidden"`)
 
